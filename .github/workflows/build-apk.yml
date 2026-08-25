@@ -20,13 +20,43 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Android SDK lisanslarını kabul et
+      - name: Android SDK'yı hazırla
+        shell: bash
         run: |
-          yes | sdkmanager --licenses || true
+          set -e
 
-      - name: Android SDK araçlarını hazırla
-        run: |
-          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
+          SDK_ROOT="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+
+          if [ -z "$SDK_ROOT" ]; then
+            echo "Android SDK yolu bulunamadı!"
+            exit 1
+          fi
+
+          echo "Android SDK yolu: $SDK_ROOT"
+
+          SDKMANAGER=$(find "$SDK_ROOT" -type f -name sdkmanager 2>/dev/null | head -n 1)
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "sdkmanager bulunamadı!"
+            echo "SDK klasörünün içeriği:"
+            find "$SDK_ROOT" -maxdepth 4 -type f 2>/dev/null | head -100
+            exit 1
+          fi
+
+          echo "sdkmanager bulundu: $SDKMANAGER"
+
+          SDKMANAGER_DIR=$(dirname "$SDKMANAGER")
+
+          echo "$SDKMANAGER_DIR" >> "$GITHUB_PATH"
+
+          yes | "$SDKMANAGER" --licenses || true
+
+          "$SDKMANAGER" "platform-tools"
+          "$SDKMANAGER" "platforms;android-35"
+          "$SDKMANAGER" "build-tools;35.0.0"
 
       - name: ZIP dosyasını bul ve aç
         shell: bash
@@ -43,10 +73,11 @@ jobs:
           echo "Bulunan ZIP: $ZIP_FILE"
 
           mkdir -p extracted
+
           unzip -q "$ZIP_FILE" -d extracted
 
           echo "ZIP içeriği:"
-          find extracted -maxdepth 4 -type f | head -100
+          find extracted -maxdepth 5 -type f | head -150
 
       - name: Gradle projesini bul
         shell: bash
@@ -58,6 +89,8 @@ jobs:
           if [ -z "$GRADLEW" ]; then
             echo "gradlew bulunamadı!"
             echo "ZIP içerisinde Android Gradle projesi bulunamadı."
+            echo "Bulunan dosyalar:"
+            find extracted -maxdepth 5 -type f | head -200
             exit 1
           fi
 
@@ -65,7 +98,8 @@ jobs:
 
           PROJECT_DIR=$(dirname "$GRADLEW")
 
-          echo "Gradle projesi: $PROJECT_DIR"
+          echo "Gradle projesi bulundu: $PROJECT_DIR"
+
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: APK oluştur
@@ -75,18 +109,35 @@ jobs:
 
           cd "$PROJECT_DIR"
 
+          echo "Gradle sürümü:"
+          ./gradlew --version
+
+          echo "APK oluşturuluyor..."
+
           ./gradlew assembleDebug --stacktrace
 
-      - name: APK dosyasını bul
+      - name: APK dosyasını kontrol et
         shell: bash
         run: |
+          set -e
+
           echo "Oluşturulan APK dosyaları:"
+
           find "$PROJECT_DIR" -type f -name "*.apk" -print
+
+          APK_COUNT=$(find "$PROJECT_DIR" -type f -name "*.apk" | wc -l)
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "APK oluşturulamadı!"
+            exit 1
+          fi
+
+          echo "APK başarıyla oluşturuldu."
 
       - name: APK'yı yükle
         uses: actions/upload-artifact@v4
         with:
           name: donduteyze-apk
           path: |
-            **/build/outputs/apk/**/*.apk
+            extracted/**/build/outputs/apk/**/*.apk
           if-no-files-found: error
