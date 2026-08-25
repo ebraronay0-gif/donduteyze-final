@@ -16,18 +16,15 @@ jobs:
 
     steps:
 
-      # 1. Depoyu indir
       - name: Depoyu indir
         uses: actions/checkout@v4
 
-      # 2. Java 17 kur
       - name: Java 17 kur
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      # 3. Android SDK kur
       - name: Android SDK kur
         uses: android-actions/setup-android@v4
         with:
@@ -36,84 +33,135 @@ jobs:
             platforms;android-35
             build-tools;35.0.0
 
-      # 4. ZIP dosyasını bul
-      - name: ZIP dosyasını bul
+      - name: ZIP dosyasını bul ve aç
         shell: bash
         run: |
           set -e
 
-          echo "=== ZIP DOSYALARI ==="
-          find . -type f -iname "*.zip" -print
+          echo "================================"
+          echo "ZIP DOSYASI ARANIYOR"
+          echo "================================"
 
-          ZIP_FILE=$(find . -type f -iname "*.zip" | head -n 1)
+          ZIP_FILE=$(find . -type f -iname "*.zip" -not -path "./extracted/*" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo "HATA: ZIP dosyası bulunamadı!"
+            echo ""
+            echo "Mevcut dosyalar:"
+            find . -maxdepth 3 -type f | head -n 200
             exit 1
           fi
 
-          echo "Bulunan ZIP: $ZIP_FILE"
+          echo "ZIP bulundu:"
+          echo "$ZIP_FILE"
 
+          rm -rf extracted
           mkdir -p extracted
 
-          unzip -o "$ZIP_FILE" -d extracted
+          echo ""
+          echo "ZIP Python ile açılıyor..."
 
-          echo "=== ZIP İÇERİĞİ ==="
-          find extracted -maxdepth 4 -type f | head -n 300
+          python3 - "$ZIP_FILE" <<'PY'
+import sys
+import zipfile
+from pathlib import Path
 
-      # 5. Gradle projesini bul
+zip_file = sys.argv[1]
+destination = Path("extracted")
+
+print("ZIP:", zip_file)
+
+with zipfile.ZipFile(zip_file, "r") as z:
+    bad = z.testzip()
+
+    if bad:
+        print("UYARI: ZIP içinde sorunlu dosya:", bad)
+
+    members = z.infolist()
+
+    print("ZIP içindeki dosya sayısı:", len(members))
+
+    for member in members:
+        print("Çıkarılıyor:", member.filename)
+        z.extract(member, destination)
+
+print("ZIP açma işlemi tamamlandı.")
+PY
+
+          echo ""
+          echo "================================"
+          echo "ÇIKARILAN DOSYALAR"
+          echo "================================"
+
+          find extracted -type f | head -n 300
+
       - name: Gradle projesini bul
         shell: bash
         run: |
           set -e
 
-          echo "=== GRADLE DOSYALARI ARANIYOR ==="
+          echo "================================"
+          echo "GRADLE PROJESİ ARANIYOR"
+          echo "================================"
 
           GRADLEW=$(find extracted -type f -name "gradlew" | head -n 1)
 
-          if [ -z "$GRADLEW" ]; then
+          if [ -n "$GRADLEW" ]; then
+            PROJECT_DIR=$(dirname "$GRADLEW")
+
+            echo "gradlew bulundu:"
+            echo "$GRADLEW"
+
+            echo "Proje klasörü:"
+            echo "$PROJECT_DIR"
+
+          else
             echo "gradlew bulunamadı."
 
-            echo "=== build.gradle DOSYALARI ==="
-            find extracted -type f \( \
-              -name "build.gradle" \
-              -o -name "build.gradle.kts" \
-              \) -print
-
-            echo ""
-            echo "=== settings.gradle DOSYALARI ==="
-            find extracted -type f \( \
+            SETTINGS=$(find extracted -type f \( \
               -name "settings.gradle" \
               -o -name "settings.gradle.kts" \
-              \) -print
+              \) | head -n 1)
 
-            echo ""
-            echo "=== TÜM DOSYALAR ==="
-            find extracted -maxdepth 5 -type f | head -n 500
+            if [ -z "$SETTINGS" ]; then
+              echo "HATA: Gradle projesi bulunamadı!"
+              echo ""
+              echo "Bulunan dosyalar:"
+              find extracted -maxdepth 5 -type f | head -n 500
+              exit 1
+            fi
 
-            exit 1
+            PROJECT_DIR=$(dirname "$SETTINGS")
+
+            echo "settings dosyası bulundu:"
+            echo "$SETTINGS"
+
+            echo "Proje klasörü:"
+            echo "$PROJECT_DIR"
           fi
-
-          PROJECT_DIR=$(dirname "$GRADLEW")
-
-          echo "Gradle projesi bulundu:"
-          echo "$PROJECT_DIR"
 
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
-      # 6. Gradle wrapper çalıştırma izni
       - name: Gradle wrapper hazırla
         shell: bash
         run: |
           set -e
 
-          chmod +x "$PROJECT_DIR/gradlew"
+          cd "$PROJECT_DIR"
+
+          if [ ! -f "./gradlew" ]; then
+            echo "HATA: gradlew bulunamadı!"
+            echo "Proje klasörü:"
+            pwd
+            find . -maxdepth 3 -type f | head -n 200
+            exit 1
+          fi
+
+          chmod +x ./gradlew
 
           echo "Gradle sürümü:"
-          cd "$PROJECT_DIR"
           ./gradlew --version
 
-      # 7. APK oluştur
       - name: APK oluştur
         shell: bash
         run: |
@@ -121,30 +169,34 @@ jobs:
 
           cd "$PROJECT_DIR"
 
-          echo "=== APK BUILD BAŞLIYOR ==="
+          echo "================================"
+          echo "APK OLUŞTURULUYOR"
+          echo "================================"
 
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      # 8. APK dosyasını kontrol et
       - name: APK dosyasını kontrol et
         shell: bash
         run: |
           set -e
 
-          echo "=== APK DOSYALARI ==="
+          echo "================================"
+          echo "APK ARANIYOR"
+          echo "================================"
 
           find "$PROJECT_DIR" -type f -iname "*.apk" -print
 
           APK_COUNT=$(find "$PROJECT_DIR" -type f -iname "*.apk" | wc -l)
 
           if [ "$APK_COUNT" -eq 0 ]; then
-            echo "HATA: APK oluşturulamadı!"
+            echo "HATA: APK bulunamadı!"
             exit 1
           fi
 
-          echo "APK başarıyla oluşturuldu."
+          echo ""
+          echo "APK BAŞARIYLA OLUŞTURULDU!"
+          echo "APK sayısı: $APK_COUNT"
 
-      # 9. APK'yı GitHub'a yükle
       - name: APK'yı yükle
         uses: actions/upload-artifact@v4
         with:
