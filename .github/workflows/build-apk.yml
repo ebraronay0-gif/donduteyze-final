@@ -1,0 +1,92 @@
+name: Android APK Oluştur
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Depoyu indir
+        uses: actions/checkout@v5
+
+      - name: Java 17 kur
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK lisanslarını kabul et
+        run: |
+          yes | sdkmanager --licenses || true
+
+      - name: Android SDK araçlarını hazırla
+        run: |
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: ZIP dosyasını bul ve aç
+        shell: bash
+        run: |
+          set -e
+
+          ZIP_FILE=$(find . -maxdepth 3 -type f -name "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ZIP dosyası bulunamadı!"
+            exit 1
+          fi
+
+          echo "Bulunan ZIP: $ZIP_FILE"
+
+          mkdir -p extracted
+          unzip -q "$ZIP_FILE" -d extracted
+
+          echo "ZIP içeriği:"
+          find extracted -maxdepth 4 -type f | head -100
+
+      - name: Gradle projesini bul
+        shell: bash
+        run: |
+          set -e
+
+          GRADLEW=$(find extracted -type f -name "gradlew" | head -n 1)
+
+          if [ -z "$GRADLEW" ]; then
+            echo "gradlew bulunamadı!"
+            echo "ZIP içerisinde Android Gradle projesi bulunamadı."
+            exit 1
+          fi
+
+          chmod +x "$GRADLEW"
+
+          PROJECT_DIR=$(dirname "$GRADLEW")
+
+          echo "Gradle projesi: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: APK oluştur
+        shell: bash
+        run: |
+          set -e
+
+          cd "$PROJECT_DIR"
+
+          ./gradlew assembleDebug --stacktrace
+
+      - name: APK dosyasını bul
+        shell: bash
+        run: |
+          echo "Oluşturulan APK dosyaları:"
+          find "$PROJECT_DIR" -type f -name "*.apk" -print
+
+      - name: APK'yı yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: donduteyze-apk
+          path: |
+            **/build/outputs/apk/**/*.apk
+          if-no-files-found: error
