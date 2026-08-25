@@ -11,6 +11,7 @@ permissions:
   contents: read
 
 jobs:
+
   build:
     name: Android APK Derlemesi
     runs-on: ubuntu-latest
@@ -18,113 +19,66 @@ jobs:
     steps:
 
       # --------------------------------------------------
-      # 1 - GitHub deposunu indir
+      # 1 - DEPoyu indir
       # --------------------------------------------------
+
       - name: Depoyu indir
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
+
 
       # --------------------------------------------------
-      # 2 - Java 17
+      # 2 - JAVA 17
       # --------------------------------------------------
+
       - name: Java 17 kur
         uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
+
 
       # --------------------------------------------------
-      # 3 - Android SDK
+      # 3 - ANDROID SDK
       # --------------------------------------------------
+
       - name: Android SDK kur
         uses: android-actions/setup-android@v3
 
+
       # --------------------------------------------------
-      # 4 - Android SDK paketlerini kur
+      # 4 - ANDROID SDK ARACLARI
       # --------------------------------------------------
-      - name: Android SDK paketlerini kur
+
+      - name: Android SDK araclarini hazirla
         shell: bash
         run: |
-          echo "Android SDK hazirlaniyor..."
-
           yes | sdkmanager --licenses || true
 
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-35"
-          sdkmanager "build-tools;35.0.0"
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
-          echo "Android SDK hazir."
 
       # --------------------------------------------------
-      # 5 - ZIP dosyasini bul
+      # 5 - ZIP DOSYASINI BUL
       # --------------------------------------------------
+
       - name: ZIP dosyasini bul
         id: zip
         shell: bash
         run: |
-          echo "========================================"
-          echo "ZIP DOSYASI ARANIYOR"
-          echo "========================================"
+          echo "======================================"
+          echo "ZIP DOSYALARI ARANIYOR"
+          echo "======================================"
 
-          ZIP_FILE=$(find . \
-            -type f \
-            -iname "*.zip" \
-            ! -path "./.git/*" \
-            | head -n 1)
+          find . -type f -iname "*.zip" -print
+
+          ZIP_FILE=$(find . -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo ""
-            echo "HATA: ZIP dosyasi bulunamadi."
+            echo "HATA: ZIP DOSYASI BULUNAMADI"
             echo ""
             echo "Depodaki dosyalar:"
-            find . -maxdepth 4 -type f | head -200
-            exit 1
-          fi
-
-          echo ""
-          echo "ZIP bulundu:"
-          echo "$ZIP_FILE"
-
-          echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
-
-      # --------------------------------------------------
-      # 6 - ZIP dosyasini ac
-      # --------------------------------------------------
-      - name: ZIP dosyasini ac
-        shell: bash
-        run: |
-          echo "========================================"
-          echo "ZIP DOSYASI ACILIYOR"
-          echo "========================================"
-
-          rm -rf extracted
-          mkdir -p extracted
-
-          unzip -o "${{ steps.zip.outputs.zip_file }}" -d extracted
-
-          echo ""
-          echo "ZIP basariyla acildi."
-
-          echo ""
-          echo "ZIP ICERIGI:"
-          find extracted -maxdepth 5 -type f | head -300
-
-      # --------------------------------------------------
-      # 7 - Gradle projesini bul
-      # --------------------------------------------------
-      - name: Gradle projesini bul
-        id: gradle
-        shell: bash
-        run: |
-          echo "========================================"
-          echo "GRADLE PROJESI ARANIYOR"
-          echo "========================================"
-
-          GRADLEW=$(find extracted \
-            -type f \
-            -name "gradlew" \
-            | head -n 1)
-
-          if [ -n "$GRADLEW" ]; then
-
-            PROJECT_DIR=$(dirname "$GRADLEW")
+            find . -maxdepth 4 -type f -print | head -200
