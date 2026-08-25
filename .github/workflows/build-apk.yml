@@ -133,3 +133,15 @@ jobs:
           echo "===================================="
           echo "DÖNDÜ TEYZE APK BAŞARIYLA OLUŞTURULDU"
           echo "===================================="
+      - name: APK'yi yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: donduteyze-apk
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+
+      - name: İşlem tamamlandı
+        run: |
+          echo "===================================="
+          echo "DÖNDÜ TEYZE APK BAŞARIYLA OLUŞTURULDU"
+          echo "===================================="
