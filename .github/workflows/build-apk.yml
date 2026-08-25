@@ -1,13 +1,10 @@
 name: Döndü Teyze APK Oluştur
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - ana
-  workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   build:
@@ -20,188 +17,105 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Java 17 kur
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Android SDK kur
-        uses: android-actions/setup-android@v4
-        with:
-          packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
+        uses: android-actions/setup-android@v3
 
-      - name: ZIP dosyasını bul ve aç
+      - name: Android SDK araçlarını hazırla
+        run: |
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-35"
+          sdkmanager "build-tools;35.0.0"
+
+      - name: ZIP dosyasını bul
+        id: zip
         shell: bash
         run: |
-          set -e
+          echo "ZIP dosyaları aranıyor..."
 
-          echo "================================"
-          echo "ZIP DOSYASI ARANIYOR"
-          echo "================================"
-
-          ZIP_FILE=$(find . -type f -iname "*.zip" -not -path "./extracted/*" | head -n 1)
+          ZIP_FILE=$(find . -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "HATA: ZIP dosyası bulunamadı!"
-            echo ""
-            echo "Mevcut dosyalar:"
-            find . -maxdepth 3 -type f | head -n 200
+            echo "HATA: ZIP dosyası bulunamadı."
+            echo "Depodaki dosyalar:"
+            find . -maxdepth 3 -type f | head -100
             exit 1
           fi
 
-          echo "ZIP bulundu:"
-          echo "$ZIP_FILE"
+          echo "ZIP bulundu: $ZIP_FILE"
+          echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
 
+      - name: ZIP dosyasını aç
+        run: |
           rm -rf extracted
           mkdir -p extracted
 
-          echo ""
-          echo "ZIP Python ile açılıyor..."
+          unzip -q "${{ steps.zip.outputs.zip_file }}" -d extracted
 
-          python3 - "$ZIP_FILE" <<'PY'
-import sys
-import zipfile
-from pathlib import Path
-
-zip_file = sys.argv[1]
-destination = Path("extracted")
-
-print("ZIP:", zip_file)
-
-with zipfile.ZipFile(zip_file, "r") as z:
-    bad = z.testzip()
-
-    if bad:
-        print("UYARI: ZIP içinde sorunlu dosya:", bad)
-
-    members = z.infolist()
-
-    print("ZIP içindeki dosya sayısı:", len(members))
-
-    for member in members:
-        print("Çıkarılıyor:", member.filename)
-        z.extract(member, destination)
-
-print("ZIP açma işlemi tamamlandı.")
-PY
-
-          echo ""
-          echo "================================"
-          echo "ÇIKARILAN DOSYALAR"
-          echo "================================"
-
-          find extracted -type f | head -n 300
+          echo "ZIP içeriği:"
+          find extracted -maxdepth 3 -type f | head -200
 
       - name: Gradle projesini bul
+        id: gradle
         shell: bash
         run: |
-          set -e
-
-          echo "================================"
-          echo "GRADLE PROJESİ ARANIYOR"
-          echo "================================"
+          echo "Gradle projesi aranıyor..."
 
           GRADLEW=$(find extracted -type f -name "gradlew" | head -n 1)
 
-          if [ -n "$GRADLEW" ]; then
-            PROJECT_DIR=$(dirname "$GRADLEW")
+          if [ -z "$GRADLEW" ]; then
+            echo "HATA: gradlew bulunamadı."
 
-            echo "gradlew bulundu:"
-            echo "$GRADLEW"
+            echo "Bulunan önemli dosyalar:"
+            find extracted -type f \( \
+              -name "build.gradle" -o \
+              -name "build.gradle.kts" -o \
+              -name "settings.gradle" -o \
+              -name "settings.gradle.kts" \
+            \) -print
 
-            echo "Proje klasörü:"
-            echo "$PROJECT_DIR"
-
-          else
-            echo "gradlew bulunamadı."
-
-            SETTINGS=$(find extracted -type f \( \
-              -name "settings.gradle" \
-              -o -name "settings.gradle.kts" \
-              \) | head -n 1)
-
-            if [ -z "$SETTINGS" ]; then
-              echo "HATA: Gradle projesi bulunamadı!"
-              echo ""
-              echo "Bulunan dosyalar:"
-              find extracted -maxdepth 5 -type f | head -n 500
-              exit 1
-            fi
-
-            PROJECT_DIR=$(dirname "$SETTINGS")
-
-            echo "settings dosyası bulundu:"
-            echo "$SETTINGS"
-
-            echo "Proje klasörü:"
-            echo "$PROJECT_DIR"
-          fi
-
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Gradle wrapper hazırla
-        shell: bash
-        run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          if [ ! -f "./gradlew" ]; then
-            echo "HATA: gradlew bulunamadı!"
-            echo "Proje klasörü:"
-            pwd
-            find . -maxdepth 3 -type f | head -n 200
             exit 1
           fi
 
-          chmod +x ./gradlew
+          PROJECT_DIR=$(dirname "$GRADLEW")
 
-          echo "Gradle sürümü:"
-          ./gradlew --version
+          echo "Gradle wrapper bulundu:"
+          echo "$GRADLEW"
+
+          echo "Gradle proje klasörü:"
+          echo "$PROJECT_DIR"
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+
+      - name: Gradle izinlerini ver
+        run: |
+          chmod +x "${{ steps.gradle.outputs.project_dir }}/gradlew"
 
       - name: APK oluştur
-        shell: bash
+        working-directory: ${{ steps.gradle.outputs.project_dir }}
         run: |
-          set -e
-
-          cd "$PROJECT_DIR"
-
-          echo "================================"
-          echo "APK OLUŞTURULUYOR"
-          echo "================================"
-
           ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: APK dosyasını kontrol et
-        shell: bash
         run: |
-          set -e
+          echo "APK dosyaları:"
 
-          echo "================================"
-          echo "APK ARANIYOR"
-          echo "================================"
+          find extracted -type f -name "*.apk" -print
 
-          find "$PROJECT_DIR" -type f -iname "*.apk" -print
-
-          APK_COUNT=$(find "$PROJECT_DIR" -type f -iname "*.apk" | wc -l)
+          APK_COUNT=$(find extracted -type f -name "*.apk" | wc -l)
 
           if [ "$APK_COUNT" -eq 0 ]; then
-            echo "HATA: APK bulunamadı!"
+            echo "HATA: APK oluşturulamadı."
             exit 1
           fi
-
-          echo ""
-          echo "APK BAŞARIYLA OLUŞTURULDU!"
-          echo "APK sayısı: $APK_COUNT"
 
       - name: APK'yı yükle
         uses: actions/upload-artifact@v4
         with:
-          name: donduteyze-apk
-          path: |
-            **/*.apk
+          name: dondu-teyze-apk
+          path: extracted/**/*.apk
           if-no-files-found: error
-          retention-days: 30
