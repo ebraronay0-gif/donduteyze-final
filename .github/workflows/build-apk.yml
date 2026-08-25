@@ -1,4 +1,4 @@
-name: Dondu Teyze APK Olustur
+name: Döndü Teyze APK Oluştur
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ on:
 
 jobs:
   build:
-    name: Android APK Derlemesi
+    name: Android APK Derleme
     runs-on: ubuntu-latest
 
     steps:
@@ -27,110 +27,109 @@ jobs:
 
       - name: Android SDK paketlerini kur
         run: |
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-35"
-          sdkmanager "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: ZIP dosyasini kontrol et
+      - name: ZIP dosyasını kontrol et
         run: |
-          echo "ZIP kontrol ediliyor..."
+          echo "ZIP dosyaları kontrol ediliyor..."
+          ls -lah
 
-          if [ ! -f "dondu teyze-v53-icon-final.zip" ]; then
-            echo "HATA: dondu teyze-v53-icon-final.zip bulunamadi!"
-            echo "Depodaki dosyalar:"
-            ls -lah
+          if [ -f "donduteyze-v53-icon-final.zip" ]; then
+            echo "ZIP bulundu:"
+            ls -lh "donduteyze-v53-icon-final.zip"
+          else
+            echo "HATA: donduteyze-v53-icon-final.zip bulunamadı."
+            echo "Mevcut ZIP dosyaları:"
+            find . -maxdepth 2 -type f -name "*.zip" -print
             exit 1
           fi
 
-          echo "ZIP bulundu:"
-          ls -lh "dondu teyze-v53-icon-final.zip"
-
-      - name: ZIP dosyasini ac
+      - name: ZIP dosyasını aç
         run: |
-          rm -rf extracted
-          mkdir -p extracted
+          rm -rf android-project
+          mkdir -p android-project
 
-          unzip -q "dondu teyze-v53-icon-final.zip" -d extracted
+          unzip -q "donduteyze-v53-icon-final.zip" -d android-project
 
-          echo "ZIP basariyla acildi."
-          echo "Icerik:"
-          find extracted -maxdepth 4 -type f | head -200
+          echo "ZIP açıldı."
+          echo "İçerik:"
+          find android-project -maxdepth 3 -type f | head -100
 
       - name: Android projesini bul
-        id: project
-        shell: bash
         run: |
-          echo "Android projesi araniyor..."
+          echo "Android projesi aranıyor..."
 
-          GRADLEW=$(find extracted -type f -name "gradlew" -print -quit)
+          PROJECT_DIR=""
 
-          if [ -z "$GRADLEW" ]; then
-            echo "HATA: gradlew bulunamadi."
-            echo ""
-            echo "Bulunan Gradle dosyalari:"
-            find extracted -type f \( \
-              -name "build.gradle" -o \
-              -name "build.gradle.kts" -o \
-              -name "settings.gradle" -o \
-              -name "settings.gradle.kts" \
-            \) -print
+          if [ -f "android-project/gradlew" ]; then
+            PROJECT_DIR="android-project"
+          else
+            PROJECT_DIR=$(find android-project -type f -name "gradlew" -print -quit | xargs -r dirname)
+          fi
 
-            echo ""
-            echo "Ilk 300 dosya:"
-            find extracted -type f -print | head -300
-
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "HATA: gradlew bulunamadı."
+            echo "ZIP içeriği:"
+            find android-project -maxdepth 5 -type f -print
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$GRADLEW")
-
-          echo "Gradle wrapper bulundu:"
-          echo "$GRADLEW"
-
-          echo "Android proje klasoru:"
+          echo "Android projesi bulundu:"
           echo "$PROJECT_DIR"
 
-          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
 
       - name: Gradle Wrapper kontrol
-        working-directory: ${{ steps.project.outputs.project_dir }}
         run: |
-          echo "Gradle Wrapper kontrol ediliyor..."
-          ls -lah
+          cd "$PROJECT_DIR"
+
+          if [ ! -f "gradlew" ]; then
+            echo "HATA: gradlew bulunamadı."
+            exit 1
+          fi
+
           chmod +x gradlew
+
+          echo "Gradle Wrapper bulundu."
           ./gradlew --version
 
-      - name: APK olustur
-        working-directory: ${{ steps.project.outputs.project_dir }}
+      - name: APK oluştur
         run: |
-          echo "APK derlemesi basliyor..."
+          cd "$PROJECT_DIR"
+
+          chmod +x gradlew
+
+          echo "APK derlemesi başlıyor..."
+
           ./gradlew assembleDebug --no-daemon --stacktrace
 
-      - name: APK dosyasini bul
+      - name: APK dosyasını bul
         run: |
-          echo "Olusturulan APK dosyalari:"
+          echo "APK dosyaları aranıyor..."
 
-          find extracted -type f -name "*.apk" -print
+          find "$PROJECT_DIR" -type f -name "*.apk" -print
 
-          APK=$(find extracted -type f -name "*.apk" -print -quit)
+          APK=$(find "$PROJECT_DIR" -type f -name "*.apk" -print -quit)
 
           if [ -z "$APK" ]; then
-            echo "HATA: APK bulunamadi!"
+            echo "HATA: APK oluşturulamadı."
             exit 1
           fi
 
           echo "APK bulundu:"
           echo "$APK"
 
-          mkdir -p apk-output
-          cp "$APK" "apk-output/dondu-teyze-debug.apk"
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
 
-          echo "APK hazir:"
-          ls -lh apk-output/dondu-teyze-debug.apk
-
-      - name: APK'yi yukle
+      - name: APK'yi yükle
         uses: actions/upload-artifact@v4
         with:
-          name: dondu-teyze-apk
-          path: apk-output/dondu-teyze-debug.apk
+          name: donduteyze-apk
+          path: ${{ env.APK_PATH }}
           if-no-files-found: error
+
+      - name: İşlem tamamlandı
+        run: |
+          echo "===================================="
+          echo "DÖNDÜ TEYZE APK BAŞARIYLA OLUŞTURULDU"
+          echo "===================================="
